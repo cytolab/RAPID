@@ -6,7 +6,7 @@ Risk Assessment Population IDentification (RAPID) is an unsupervised, machine le
 
 This repository contains the code for the computational workflow as well as example data from 2018 Davis et al. (https://www.ncbi.nlm.nih.gov/pubmed/29505032)
 
-##Figure 1:
+### Figure 1:
 
 ![alt text](https://www.biorxiv.org/content/biorxiv/early/2019/06/01/632208/F1.large.jpg)
 
