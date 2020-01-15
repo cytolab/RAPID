@@ -1,0 +1,144 @@
+---
+title: "RAPID Workflow on Davis Dataset"
+author: "Nalin Leelatian, Jonathan Irish, Sierra Barone"
+date: "01/15/2020"
+output: pdf_document
+editor_options: 
+  chunk_output_type: console
+---
+
+## Risk Assessment Population IDentification (RAPID) Workflow
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# uncomment lines below to install packages
+#install.packages("survminer", repos = "http://cran.us.r-project.org")
+#install.packages("devtools", repos = "http://cran.us.r-project.org")
+#devtools::install_github("cytolab/mem")
+#install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+#if (!requireNamespace("BiocManager", quietly = TRUE))
+#    install.packages("BiocManager")
+#BiocManager::install("flowCore")
+#BiocManager::install("Biobase")
+#install.packages("ggpubr", repos = "http://cran.us.r-project.org")
+#install.packages(paste(getwd(), sep=""), type = "source", repos=NULL)
+
+# load packages into the working library
+library(devtools)
+library(MEM)
+library(RAPID)
+library(tidyverse)
+library(ggpubr)
+library(flowCore)
+library(Biobase)
+
+# set working directory 
+setwd(paste(getwd(),"/data_files", sep = ""))
+
+# set output file name tag 
+output_filename = "_RAPID"
+
+# read data into R
+data.set <-  dir(pattern="*.fcs")
+data <- lapply(lapply(data.set,read.FCS),exprs)
+combined.patient.data = as.data.frame(do.call(rbind, mapply(cbind, data, "FILE_ID"= c(1:length(data)), SIMPLIFY=F)))
+colnames(combined.patient.data) =c((read.FCS(data.set[[1]])@parameters@data[["desc"]]),"FILE_ID")
+names = colnames(combined.patient.data)
+
+# to see patient order, uncomment and run line below
+# data.set
+
+# create varible for survival or clinical data
+clinical.data.file <-  dir(pattern="*.csv")
+clinical.data = read.csv(clinical.data.file)
+``` 
+
+```{r data and constants}
+# selecting t-SNE columns from data set
+tsne.data <- combined.patient.data %>%
+  select(contains('tSNE'))
+
+# transform other data 
+transformed.data <- combined.patient.data %>%
+  select(-contains('FILE_ID')) %>%
+  mutate_all(function(x) asinh(x/5))
+
+# choose markers to use for variance calculation and transform
+chosen.markers <- transformed.data %>%
+  select(contains('(v)'))
+```
+
+```{r FlowSOM Optimization of clusters}
+# find ideal numbers of clusters and create cluster ID data
+optimized.cluster.data = optimize_FlowSOM_clusters(tsne.data,chosen.markers, N = 50, seed = 38)
+
+# plot optimized FlowSOM clusters
+FlowSOM_clusters_plot <- plot_clusters(x = tsne.data[,2],y = tsne.data[,1], optimized.cluster.data,xlab ="t-SNE 2",ylab = "t-SNE 1",legendtitle = "FlowSOM Cluster",title = "t-SNE with FlowSOM Clusters")
+FlowSOM_clusters_plot
+```
+
+```{r find clinically significant clusters}
+# cluster ID in 1st column and patient ID in 2nd column
+cluster.patient.data = as.data.frame(cbind(optimized.cluster.data,combined.patient.data$`FILE_ID`))
+
+# calculate survival statistics
+survival_stats <- subset_survival_analysis(cluster.patient.data, clinical.data, clinical_col = 2, status_col = 3)
+
+# plot significant survival curves
+survival_plots <- plot_survival_curves(survival_stats, cluster.patient.data, clinical.data, clinical_col = 2, status_col = 3)
+survival_plots
+
+# find significant subsets and assign prognostic value (1 = none, 2 = positive prog., 3 = negative prog.)
+prognostic_subsets = significant_clusters(survival_stats, cluster_data = optimized.cluster.data)
+
+# plot significant subsets
+RAPID_plot <- plot_sig_clusters(x = tsne.data[,2], y = tsne.data[,1], clusters = optimized.cluster.data, survival_stats,xlab ="t-SNE 2",ylab = "t-SNE 1",legendtitle = "Prognostic Subsets",title = "t-SNE with Prognostic Populations")
+RAPID_plot
+```
+
+
+```{r MEM}
+cluster = optimized.cluster.data
+MEM.data = cbind(chosen.markers,cluster)
+
+# use MEM to find marker enrichments for FlowSOM populations
+MEM.values.p = MEM(MEM.data, transform = FALSE, cofactor = 0, choose.markers = FALSE, markers = "1,3:4,6:10,12:13,15:16,18:23,25:27,30:31",choose.ref = FALSE, zero.ref = FALSE, rename.markers = FALSE, new.marker.names = "CD45,CD19,CD22,tIKAROS,CD79b,CD20,CD34,CD179a,CD123,IGMi,CD10,CD179b,CD24,TSLPR,CD127,RAG1,TDT,PAX5,CD43,CD38,CD58,HLA-DR,IGMs",file.is.clust = FALSE, add.fileID = FALSE, IQR.thresh = NULL)
+
+MEM.values.s = MEM(MEM.data, transform = FALSE, cofactor = 0, choose.markers = FALSE, markers = "2,5,11,14,17,24,28:29,32",choose.ref = FALSE, zero.ref = FALSE, rename.markers = FALSE, new.marker.names = "p-PLCg,p-4EBP1,p-STAT5,p-IKAROS,p-AKT,p-Syk,p-S6,p-ERK,p-CREB",file.is.clust = FALSE, add.fileID = FALSE, IQR.thresh = NULL)
+
+# build MEM heatmap and output enrichment scores
+build.heatmaps(MEM.values.p, cluster.MEM = "both", cluster.medians = "none", 
+display.thresh = 1, newWindow.heatmaps=TRUE, output.files = TRUE, labels = FALSE, only.MEMheatmap = FALSE)
+
+build.heatmaps(MEM.values.s, cluster.MEM = "both", cluster.medians = "none", 
+display.thresh = 1, newWindow.heatmaps=TRUE, output.files = TRUE, labels = FALSE, only.MEMheatmap = FALSE)
+```
+
+```{r create report}
+# create output files folder by uncommenting and running line below 
+dir.create(file.path(getwd(), "output files"), showWarnings = FALSE)
+
+# export figures to PDF
+ggexport(FlowSOM_clusters_plot,RAPID_plot,survival_plots,filename = paste("./output files/",strftime(Sys.time(),"%Y-%m-%d_%H%M%S"),output_filename,".pdf",sep=""), width = 7.2, height = 5.4)
+
+combined.patient.data = as.data.frame(do.call(rbind, mapply(cbind, data, "FILE_ID"= c(1:length(data)), SIMPLIFY=F)))
+data.to.fcs = cbind(combined.patient.data,prognostic_subsets)
+name<-c(names[1:(ncol(combined.patient.data)-1)],"Cluster","Prog_Status")
+
+# export files 
+separate.fcs.files = split(data.to.fcs,data.to.fcs$`FILE_ID`)
+for (i in 1:length(separate.fcs.files)){
+reduce.data = subset(separate.fcs.files[[i]], select=-c(`FILE_ID`))
+mat.input<- as.matrix(reduce.data)
+metadata <- data.frame(name = dimnames(mat.input)[[2]], desc = name)
+metadata$range <- apply(apply(mat.input, 2, range), 2, diff)
+metadata$minRange <- apply(mat.input, 2, min)
+metadata$maxRange <- apply(mat.input, 2, max)
+input.flowframe <- new("flowFrame", exprs=mat.input,parameters = AnnotatedDataFrame(metadata))  
+newname  = str_remove(data.set[i], ".fcs")
+new.filename = paste0("./output files/",strftime(Sys.time(),"%Y-%m-%d_%H%M%S"),"_",newname,"_RAPID.fcs",sep="")
+write.FCS(input.flowframe,filename = new.filename)
+print(paste("FCS file ",i," done", sep = ""))}
+```
+
