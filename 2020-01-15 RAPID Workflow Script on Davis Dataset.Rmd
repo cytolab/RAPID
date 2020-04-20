@@ -20,6 +20,7 @@ knitr::opts_chunk$set(echo = TRUE)
 #if (!requireNamespace("BiocManager", quietly = TRUE))
 #    install.packages("BiocManager")
 #BiocManager::install("flowCore")
+#BiocManager::install("FlowSOM")
 #BiocManager::install("Biobase")
 #install.packages("ggpubr", repos = "http://cran.us.r-project.org")
 #install.packages(paste(getwd(), sep=""), type = "source", repos=NULL)
@@ -140,5 +141,8 @@ newname  = str_remove(data.set[i], ".fcs")
 new.filename = paste0("./output files/",strftime(Sys.time(),"%Y-%m-%d_%H%M%S"),"_",newname,"_RAPID.fcs",sep="")
 write.FCS(input.flowframe,filename = new.filename)
 print(paste("FCS file ",i," done", sep = ""))}
+
+# print session information
+sessionInfo()
 ```
 
