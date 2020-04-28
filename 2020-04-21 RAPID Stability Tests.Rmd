@@ -1,0 +1,243 @@
+---
+title: "Statistical Validation for RAPID"
+author: "Sierra Barone"
+date: "04/21/2020"
+output: pdf_document
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+
+# load packages into the working library
+library(devtools)
+library(MEM)
+library(RAPID)
+library(tidyverse)
+library(ggpubr)
+library(flowCore)
+library(Biobase)
+library(FlowSOM)
+library(survival)
+library(survminer)
+library(plyr)
+library(Rtsne)
+
+```
+
+```{r load things}
+
+# number of subsamplings and t-SNE analyses to run
+NUMBER_OF_TESTS = 10
+
+# number of cells per file to subsample
+NUMBER_OF_CELLS_TO_SAMPLE_PER_FILE = 100
+
+# read data into R
+setwd("/Users/Sierra/Desktop/RAPID on Davis Dataset/RAPID/data_files")
+data.set <-  dir(pattern="*.fcs")
+data.lists <- lapply(lapply(data.set,read.FCS),exprs)
+my.data = as.data.frame(do.call(rbind, mapply(cbind, data.lists, "File ID" = 
+                                        c(1:length(data.lists)), SIMPLIFY = F)))
+colnames(my.data)[1:length(my.data)-1 ] <- as.character(read.FCS
+(data.set[[1]])@parameters@data[["desc"]])
+
+# create varible for survival or clinical data
+OS.data.set <-  dir(pattern="*.csv")
+OS.data = read.csv(OS.data.set)
+```
+
+```{r validation analysis}
+
+# create output directory
+dir.create(file.path(getwd(), "output files"), showWarnings = FALSE)
+
+data_for_RMSD<-list()
+
+for (q in 1:NUMBER_OF_TESTS){
+
+# equally sample the data 
+files.to.sample = split(my.data,my.data$`File ID`)
+sampled.data <- list()
+for (i in 1: length(files.to.sample)){
+  if (nrow(files.to.sample[[i]])>NUMBER_OF_CELLS_TO_SAMPLE_PER_FILE){            
+    sample.df =  files.to.sample[[i]]
+    sampled.data[[i]] = as.data.frame(sample.df[sample(nrow(sample.df), NUMBER_OF_CELLS_TO_SAMPLE_PER_FILE), ])}        
+  else{
+    sampled.data[[i]] = files.to.sample[[i]]}}
+my.sampled.data = as.data.frame(do.call(rbind, sampled.data)) 
+
+to.tsne.data <- my.sampled.data %>%
+mutate_all(function(x) asinh(x/5)) %>%
+select(contains('(v)'))
+
+# run t-SNE analysis
+mytSNE = Rtsne(
+  to.tsne.data, dims = 2, initial_dims = length(to.tsne.data), 
+  perplexity = 30, check_duplicates = FALSE, max_iter = 1000, verbose = TRUE)
+tsne.data = as.data.frame(mytSNE$Y)
+
+# find ideal number of clusters
+optimized.cluster.data = optimize_FlowSOM_clusters(tsne.data,to.tsne.data, N = 50, seed = 38)
+test.data = cbind(my.sampled.data,tsne.data,optimized.cluster.data)
+colnames(test.data)[(ncol(test.data)-2):ncol(test.data)]<- c("tSNE1","tSNE2","cluster")
+run.number = q
+ideal.cluster.number = max(test.data$`cluster`)
+
+ write.csv(test.data,paste("./output files/Run ",run.number,"_",strftime(Sys.time(),"%Y-%m-%d_%H%M%S"),"all_data_with_tSNE_and_clusters.csv"))
+
+  mat.input <- as.matrix(tsne.data)
+  metadata <- data.frame(name = dimnames(mat.input)[[2]], desc = dimnames(mat.input)[[2]])
+  metadata$range <- apply(apply(mat.input, 2, range), 2, diff)
+  metadata$minRange <- apply(mat.input, 2, min)
+  metadata$maxRange <- apply(mat.input, 2, max)
+  input.flowframe <- new("flowFrame", exprs=mat.input,parameters = AnnotatedDataFrame(metadata))
+  
+  flowSOM.clusters <- list()
+  for  (k in 1:100) {
+    fSOM <- FlowSOM(input.flowframe, scale = TRUE, colsToUse = c(1:length(tsne.data)), nClus= ideal.cluster.number)
+    flowSOM.cluster <- as.matrix(fSOM[[2]][fSOM[[1]]$map$mapping[,1]])
+    flowSOM.clusters[[k]] <- as.numeric(as.vector(flowSOM.cluster))}
+  
+true.clusters = optimized.cluster.data
+
+# find stable clusters
+  f.table <- list()
+  max.fmeasure <- list()
+  for (i in 1:length(flowSOM.clusters)){
+    test.clusters = flowSOM.clusters[[i]]
+  a <- table(true.clusters, test.clusters);
+  p <- t(apply(a,1,function(x)x/colSums(a)))
+  r <- apply(a,2,function(x)x/rowSums(a))
+  f <- 2*r*p / (r+p)
+  f[is.na(f)] <- 0
+  f.table[[i]] <- f
+  max.fmeasure[[i]] = apply(f,1,max)
+  sum(apply(f,1,max) * (rowSums(a)/sum(a)))}
+  all.clusters = plyr::ldply(flowSOM.clusters,rbind)
+  saveRDS(all.clusters,paste("./output files/Run ",run.number,"_",strftime(Sys.time(),"%Y-%m-%d_%H%M%S"),"flowSOM_clusters.RDS"))
+  
+all.max.fmeasures = plyr::ldply(max.fmeasure,rbind)
+avg.fmeasure = apply(all.max.fmeasures,2,mean)
+stable.clusters = as.numeric(as.vector(rownames(as.data.frame(avg.fmeasure[avg.fmeasure > 0.5]))))
+cells.in.stable.clusters = subset(test.data, test.data$`cluster` %in% stable.clusters)
+
+cluster_and_patient_df = as.data.frame(cbind(true.clusters,test.data$`File ID`))
+  cluster_and_patient_df[,1] <- as.factor(cluster_and_patient_df[,1])
+  cluster_and_patient_df[,2] <- as.factor(cluster_and_patient_df[,2])
+  patient.subsets <- split(cluster_and_patient_df,cluster_and_patient_df[,2])
+
+  subset.abundance <- list()
+  for (j in 1:length(patient.subsets)){
+    subset.abundance[[j]] = (summary(patient.subsets[[j]][,1]))*100/nrow(patient.subsets[[j]])}
+  all.subset.abundances = plyr::ldply(subset.abundance,rbind)
+  all.subset.abundances[is.na(all.subset.abundances)]<-0
+  single.subset.abundance.data <- list()
+  for(d in 1:ncol(all.subset.abundances)){
+    single.subset.abundance.data[[d]] = all.subset.abundances[,c(d)]}
+  abundance.IQR <- list()
+  for (b in 1:ncol(all.subset.abundances)){
+    abundance.IQR[[b]] = IQR(all.subset.abundances[,c(b)])}
+  Abundance_IQR = as.vector(unlist(abundance.IQR))
+  rownames(all.subset.abundances)<- c(1:nrow(all.subset.abundances))
+  abundance.groups <- list()
+  for(e in 1:ncol(all.subset.abundances)){
+    abundance.groups[[e]] <- (single.subset.abundance.data[[e]]>abundance.IQR[[e]])
+    abundance.groups[[e]][abundance.groups[[e]]==TRUE] = 1
+    names(abundance.groups)[[e]]<- colnames(all.subset.abundances)[e]}             # 1 = high, 0 = low
+
+  # survival analysis
+  cox.summary<- list()
+  count = 1
+  high.low.groups <- list()
+  low.median = vector()
+  high.median = vector()
+  GNP <- vector()
+  GPP <- vector()
+  GNPstats <- list()
+  GPPstats <- list()
+  countgnp = 0
+  countgpp = 0
+  for (s in 1:length(stable.clusters)){
+    Group <- factor(abundance.groups[[paste0(stable.clusters[s],sep = "")]], levels = c(0,1), labels = c("Low", "High"))
+    survival_data1 = cbind(OS.data,Group)
+    high.low.groups[[s]] = split(survival_data1,survival_data1$Group)
+    low.median[[s]] = median(high.low.groups[[s]][["Low"]][[2]])
+    high.median[[s]] = median(high.low.groups[[s]][["High"]][[2]])
+    model2 <- coxph(Surv(OS.data$Time, OS.data$Status) ~ Group, data=survival_data1)
+    cox.summary[[stable.clusters[s]]] = summary(model2)
+    
+    survival_stat = cox.summary[[stable.clusters[s]]]$coefficients
+    CI = cox.summary[[stable.clusters[s]]]$conf.int
+    
+    if (survival_stat[,5] <= 0.05 & survival_stat[,2] <= 1){
+      print(paste("Positive Prognostic Subset #", stable.clusters[s]))
+      countgpp = countgpp + 1
+      GPP[countgpp] = stable.clusters[s]
+      GPPstats[[countgpp]] = c(survival_stat[,5],survival_stat[,2],CI[,c(3:4)])}
+
+    if (survival_stat[,5] <= 0.05 & survival_stat[,2] >= 1){
+      print(paste("Negative Prognostic Subset #",stable.clusters[s]))
+      countgnp = countgnp + 1
+      GNP[countgnp] = stable.clusters[s]
+      GNPstats[[countgnp]] = c(survival_stat[,5],survival_stat[,2],CI[,c(3:4)])}}
+  significant.clusters = c(GNP,GPP)
+  Median_High_Group = high.median
+  Median_Low_Group = low.median
+  all.abundance.data = rbind(all.subset.abundances,Abundance_IQR, Median_High_Group,Median_Low_Group,avg.fmeasure)
+  colnames(all.abundance.data) <- paste(run.number,"_","Subset_", colnames(all.subset.abundances), sep = "")
+  rownames(all.abundance.data)[(nrow(all.abundance.data)-3):(nrow(all.abundance.data))]<-c("Abundance_IQR", "Median_High_Group","Median_Low_Group","F-measure")
+  write.csv(all.abundance.data, paste("./output files/Run ",run.number,"_",strftime(Sys.time(),"%Y-%m-%d_%H%M%S"),"_subset_abundances_withIQRandfmeasure.csv",sep=""))
+
+  # run MEM on significant pops
+MEMdata = to.tsne.data
+cluster = true.clusters
+MEM.data = cbind(MEMdata,cluster)
+
+MEM.values.p = MEM(MEM.data, transform = FALSE, cofactor = 0, choose.markers = FALSE, markers = "1,3:4,6:10,12:13,15:16,18:23,25:27,30:31",choose.ref = FALSE, zero.ref = FALSE, rename.markers = FALSE, new.marker.names = "CD45,CD19,CD22,tIKAROS,CD79b,CD20,CD34,CD179a,CD123,IGMi,CD10,CD179b,CD24,TSLPR,CD127,RAG1,TDT,PAX5,CD43,CD38,CD58,HLA-DR,IGMs",file.is.clust = FALSE, add.fileID = FALSE, IQR.thresh = NULL)
+
+MEM.values.s = MEM(MEM.data, transform = FALSE, cofactor = 0, choose.markers = FALSE, markers = "2,5,11,14,17,24,28:29,32",choose.ref = FALSE, zero.ref = FALSE, rename.markers = FALSE, new.marker.names = "p-PLCg,p-4EBP1,p-STAT5,p-IKAROS,p-AKT,p-Syk,p-S6,p-ERK,p-CREB",file.is.clust = FALSE, add.fileID = FALSE, IQR.thresh = NULL)
+
+MEM_Matrix = cbind(MEM.values.p$MEM_matrix[[1]],MEM.values.s$MEM_matrix[[1]])
+MEM_for_RMSD = subset(MEM_Matrix, rownames(MEM_Matrix) %in% significant.clusters)
+rownames(MEM_for_RMSD)<-paste0(run.number,"_",rownames(MEM_for_RMSD),sep = "")
+ordered.MEM = as.data.frame(MEM_for_RMSD[order(row.names(MEM_for_RMSD)),,drop = FALSE ])
+gnpstats = do.call(rbind,GNPstats)
+if (length(gnpstats)!=0) {
+  colnames(gnpstats)[1:2] <- c("p", "HR")
+  rownames(gnpstats) <- c(GNP)
+} else{
+  gnpstats = c(1, 0)
+}
+gppstats = do.call(rbind, GPPstats)
+if (length(gppstats) != 0) {
+  colnames(gppstats)[1:2] <- c("p", "HR")
+  rownames(gppstats) <- c(GPP)
+} else {
+  gppstats = c(1, 0)
+}
+combined.stats = rbind(gnpstats,gppstats)
+if((gnpstats == c(1,0))|(gppstats == c(1,0))){
+combined.stats = combined.stats[-c(which(combined.stats[,1]==1)),,drop = FALSE]}
+rownames(combined.stats)<-paste0(run.number,"_",rownames(combined.stats),sep = "")
+ordered.data = as.data.frame(combined.stats[order(row.names(combined.stats)),,drop = FALSE ])
+all.significant.cluster.data = cbind(ordered.data,ordered.MEM)
+
+write.csv(all.significant.cluster.data, paste("./output files/Run ",run.number,"_",strftime(Sys.time(),"%Y-%m-%d_%H%M%S"),"_siginificant_stable_cluster_data.csv",sep=""))
+
+data_for_RMSD[[q]]<- as.data.frame(all.significant.cluster.data)
+}
+
+dataRMSD = do.call(rbind,data_for_RMSD)
+to.RMSD = as.matrix(dataRMSD[-c(1:4)])
+
+write.csv(to.RMSD,paste("./output files/Run ",run.number,"_",strftime(Sys.time(),"%Y-%m-%d_%H%M%S"),"_RMSD_input_data.csv",sep=""))
+
+# run RMSD and make heatmap for significant pops from all runs 
+pdf(paste("./output files/Run ",run.number,"_",strftime(Sys.time(),"%Y-%m-%d_%H%M%S"),"_RMSD_heatmap.pdf",sep=""),width = 20, height =20)
+rmsd <- MEM_RMSD(to.RMSD,format = NULL, output.matrix = TRUE,newWindow.heatmaps = FALSE)
+dev.off()
+
+# print session information
+sessionInfo()
+``` 
