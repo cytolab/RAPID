@@ -41,7 +41,7 @@ library(plyr)
 library(Rtsne)
 
 # set working directory 
-setwd(paste(getwd(),"/data_files/gbm_dataset/equal_sampling_tSNE", sep = ""))
+setwd(paste(getwd(),"/data_files/gbm_dataset/", sep = ""))
 
 # set output file name tag 
 output_filename = "_RAPID"
