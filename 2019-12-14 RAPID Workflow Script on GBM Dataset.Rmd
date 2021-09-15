@@ -2,8 +2,10 @@
 title: "Data Analysis Workflow Using RAPID package on GBM Data"
 author: "Sierra Barone"
 date: "05/10/2019"
-output: pdf_document
-editor_options: 
+output:
+  html_document:
+    df_print: paged
+editor_options:
   chunk_output_type: inline
 ---
 
@@ -81,7 +83,19 @@ MEMdata = cbind(chosen.markers,transformed.data$`CycinB1-139`)
 
 ```{r FlowSOM Optimization of clusters}
 # find ideal numbers of clusters and create cluster ID data
-optimized.cluster.data = optimize_FlowSOM_clusters(tsne.data,chosen.markers, N = 50, seed = 38)
+
+# Here we find 44 clusters, so below is the code to find those 44 clusters
+mat.input <- as.matrix(tsne.data)
+metadata <- data.frame(name = dimnames(mat.input)[[2]], desc = dimnames(mat.input)[[2]])
+metadata$range <- apply(apply(mat.input, 2, range), 2, diff)
+metadata$minRange <- apply(mat.input, 2, min)
+metadata$maxRange <- apply(mat.input, 2, max)
+input.flowframe <- new("flowFrame", exprs=mat.input,parameters = AnnotatedDataFrame(metadata))
+fSOM <- FlowSOM(input.flowframe, scale = TRUE, colsToUse = c(1:2), nClus    = 44, seed = 38)
+optimized.cluster.data <- as.vector(as.numeric(GetMetaclusters(fSOM)))
+                                   
+# To run the optimization, uncomment and run the line below
+# optimized.cluster.data = optimize_FlowSOM_clusters(tsne.data,chosen.markers, N = 50, seed = 38)
 
 # plot optimized FlowSOM clusters
 FlowSOM_clusters_plot <- plot_clusters(x = tsne.data[,2],y = tsne.data[,1], clusters = as.factor(optimized.cluster.data),xlab ="t-SNE 2",ylab = "t-SNE 1",legendtitle = "FlowSOM Cluster",title = "Cancer Cells t-SNE with FlowSOM Clusters")

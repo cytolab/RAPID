@@ -28,7 +28,7 @@ optimize_FlowSOM_clusters <- function (FlowSOM_input, marker_data, N, seed) {
     fSOM <- FlowSOM(input.flowframe, scale = TRUE, colsToUse = c(1:length(FlowSOM_input)), nClus    = CLUSTER.NUMBER, seed = seed)
 
     # create a cluster matrix
-    flowSOM.clusters[[k]] <- as.matrix(fSOM[[2]][fSOM[[1]]$map$mapping[,1]])
+    flowSOM.clusters[[k]] <- GetMetaclusters(fSOM)
     data.with.clusters[[k]] = cbind(marker_data, flowSOM.clusters[[k]])
     colnames(data.with.clusters[[k]])[colnames(data.with.clusters[[k]]) ==  'flowSOM.clusters[[k]]'] <- 'cluster'
     subset.data[[k]] <- split(data.with.clusters[[k]], data.with.clusters[[k]]$cluster)
