@@ -1,8 +1,0 @@
-[1] "Negative Prognostic Subset # 8"
-[1] "Negative Prognostic Subset # 10"
-[1] "Negative Prognostic Subset # 14"
-[1] "Positive Prognostic Subset # 17"
-[1] "Positive Prognostic Subset # 18"
-[1] "Positive Prognostic Subset # 19"
-[1] "Positive Prognostic Subset # 31"
-[1] "Positive Prognostic Subset # 32"
