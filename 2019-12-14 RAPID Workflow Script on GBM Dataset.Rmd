@@ -26,7 +26,9 @@ knitr::opts_chunk$set(echo = TRUE)
 # BiocManager::install("FlowSOM")
 # BiocManager::install("Biobase")
 # install.packages("ggpubr", repos = "http://cran.us.r-project.org")
-# install.packages(paste(getwd(), sep=""), type = "source", repos=NULL)
+
+# uncomment line below to install RAPID
+# devtools::install_github("cytolab/RAPID")
 
 # load packages into the working library
 library(devtools)
@@ -41,6 +43,8 @@ library(survival)
 library(survminer)
 library(plyr)
 library(Rtsne)
+library(cowplot)
+library(RColorBrewer)
 
 # set working directory 
 setwd(paste(getwd(),"/data_files/gbm_dataset/", sep = ""))
@@ -79,6 +83,47 @@ chosen.markers <- transformed.data %>%
 
 # create variable for markers to use in MEM
 MEMdata = cbind(chosen.markers,transformed.data$`CycinB1-139`)
+```
+
+```{r plot heat on markers t-SNE}
+setwd(paste(getwd(),"/data_files/gbm_dataset/", sep = ""))
+dir.create("./output files/")
+
+
+range <- apply(apply(tsne.data, 2, range), 2, diff)
+graphical.ratio <- (range[1] / range[2])
+
+# UMAP flat dot plot and density dot plot (1 dot = 1 cell)
+tsne.plot <- data.frame(x = tsne.data[, 2], y = tsne.data[, 1])
+
+# density dot plot
+ggplot(tsne.plot, aes(x = x, y = y)) + 
+  coord_fixed(ratio = graphical.ratio)+ geom_point(size = 0.5) +geom_density_2d_filled(bins = 29) +scale_fill_manual(values = c("NA","NA","NA","NA","NA","NA","NA",viridis::viridis(24,option = "A"))) +
+labs(x = "t-SNE 1", y = "t-SNE 2", 
+  title = "Density on t-SNE Axes") + theme_bw()  + 
+  theme(panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank())+theme(legend.position = "none") +
+  labs(caption = "Data from Sinnaeve et al., eLife 2020")
+
+tsne.by.marker<-as_tibble(tsne.data) %>%
+  bind_cols(MEMdata)  %>%
+  gather(channel, intensity, -tSNE1_2, -tSNE2_2) %>%
+  mutate(across(channel,factor))%>%
+  group_split(channel) %>%
+  map(
+    ~ggplot(.,aes(x= tSNE2_2, y= tSNE1_2, col = intensity)) +
+  geom_point(size = 2) +
+  scale_color_gradientn(
+    colours = colorRampPalette(rev(brewer.pal(n = 11, name = "Spectral")))(5))+
+  facet_grid(~ channel, labeller = function(x) label_value(x, multi_line = FALSE)) +
+  coord_fixed() +
+  theme_bw()+
+  theme(strip.text.x = element_text(size = 20),legend.title=element_blank()))%>%
+  plot_grid(plotlist = ., align = 'hv', ncol = 8)
+
+png(paste("./output files/",strftime(Sys.time(),"%Y-%m-%d_%H%M%S"),"t-SNE on transformed data.png"),height = 2000,width = 4000)
+print(tsne.by.marker)
+dev.off()
 ```
 
 ```{r FlowSOM Optimization of clusters}
@@ -122,6 +167,8 @@ RAPID_plot
 ```
 
 ```{r MEM}
+setwd(paste(getwd(),"/data_files/gbm_dataset/", sep = ""))
+
 cluster = optimized.cluster.data
 MEM.data = cbind(MEMdata,cluster)
 
@@ -141,6 +188,8 @@ display.thresh = 0, newWindow.heatmaps=FALSE, output.files = TRUE, labels = FALS
 ```
 
 ```{r create report}
+setwd(paste(getwd(),"/data_files/gbm_dataset/", sep = ""))
+
 # create output files folder by uncommenting and running line below 
 dir.create(file.path(getwd(), "output files"), showWarnings = FALSE)
 
