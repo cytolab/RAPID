@@ -46,8 +46,8 @@ subset_survival_analysis <- function (cluster_and_patient_df, survival_data, cli
     Group <- factor(abundance.groups[[s]], levels = c(0,1), labels = c("Low", "High"))
     survival_data1 = cbind(survival_data,Group)
     high.low.groups[[s]] = split(survival_data1,survival_data1$Group)
-    low.median[[s]] = median(high.low.groups[[s]][["Low"]][[2]])
-    high.median[[s]] = median(high.low.groups[[s]][["High"]][[2]])
+    low.median[[s]] = median(high.low.groups[[s]][["Low"]][[clinical_col]])
+    high.median[[s]] = median(high.low.groups[[s]][["High"]][[clinical_col]])
     model2 <- coxph(Surv(survival_data[,clinical_col], survival_data[,status_col]) ~ Group, data=survival_data1)
     cox.summary[[colnames(all.subset.abundances)[s]]] = summary(model2)}
 
