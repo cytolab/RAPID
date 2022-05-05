@@ -18,7 +18,9 @@ knitr::opts_chunk$set(echo = TRUE)
 # install.packages("survminer", repos = "http://cran.us.r-project.org")
 # install.packages("Rtsne", repos = "http://cran.us.r-project.org")
 # install.packages("devtools", repos = "http://cran.us.r-project.org")
-# devtools::install_github("cytolab/mem")
+# if (!require("BiocManager", quietly = TRUE))
+#    install.packages("BiocManager")
+# BiocManager::install("cytoMEM")
 # install.packages("tidyverse", repos = "http://cran.us.r-project.org")
 # if (!requireNamespace("BiocManager", quietly = TRUE))
 #    install.packages("BiocManager")
@@ -32,7 +34,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 # load packages into the working library
 library(devtools)
-library(MEM)
+library(cytoMEM)
 library(RAPID)
 library(tidyverse)
 library(ggpubr)
@@ -180,11 +182,11 @@ MEM.values.p = MEM(MEM.data, transform = FALSE, cofactor = 0, choose.markers = F
 MEM.values.s = MEM(MEM.data, transform = FALSE, cofactor = 0, choose.markers = FALSE, markers = "5:7,9:10,17,22:23,25",choose.ref = FALSE, zero.ref = FALSE, rename.markers = FALSE, new.marker.names = "p-STAT5,p-AKT,p-STAT1,p-p38,p-STAT3,p-NFkB,p-ERK,p-S6,CyclinB1",file.is.clust = FALSE, add.fileID = FALSE, IQR.thresh = NULL)
 
 # build MEM heatmap and output enrichment scores
-build.heatmaps(MEM.values.p, cluster.MEM = "both", cluster.medians = "none", 
-display.thresh = 1, newWindow.heatmaps=FALSE, output.files = TRUE, labels = FALSE, only.MEMheatmap = FALSE)
+build_heatmaps(MEM.values.p, cluster.MEM = "both", cluster.medians = "none", 
+display.thresh = 1, output.files = TRUE, labels = FALSE, only.MEMheatmap = FALSE)
 
-build.heatmaps(MEM.values.s, cluster.MEM = "both", cluster.medians = "none", 
-display.thresh = 0, newWindow.heatmaps=FALSE, output.files = TRUE, labels = FALSE, only.MEMheatmap = FALSE)
+build_heatmaps(MEM.values.s, cluster.MEM = "both", cluster.medians = "none", 
+display.thresh = 0, output.files = TRUE, labels = FALSE, only.MEMheatmap = FALSE)
 ```
 
 ```{r create report}

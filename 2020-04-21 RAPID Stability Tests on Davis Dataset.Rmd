@@ -11,7 +11,7 @@ editor_options:
 
 # load packages into the working library
 library(devtools)
-library(MEM)
+library(cytoMEM)
 library(RAPID)
 library(tidyverse)
 library(ggpubr)
